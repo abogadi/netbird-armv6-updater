@@ -1,0 +1,101 @@
+# place this script in your synology task scheduler
+# the initial installation and login is not in the scope of the script
+
+#!/bin/bash
+
+# Configuration
+OWNER="netbirdio"
+REPO="netbird"
+CLI_APP="netbird"
+ARCH="amd64"
+INSTALL_DIR="/volume1/homes/username/netbird"
+CONFIG_FILE="/volume1/homes/username/netbird/install.conf"
+
+# Function to get the latest release tag from GitHub
+get_latest_release() {
+    local URL="https://api.github.com/repos/${OWNER}/${REPO}/releases/latest"
+    if [ -n "$GITHUB_TOKEN" ]; then
+        curl -H "Authorization: token ${GITHUB_TOKEN}" -s "$URL" | grep '"tag_name":' | sed -E 's/.*"([^\"]+)".*/\1/'
+    else
+        curl -s "$URL" | grep '"tag_name":' | sed -E 's/.*"([^\"]+)".*/\1/'
+    fi
+}
+
+# Function to download and install the new version of NetBird
+install_netbird() {
+    local VERSION=$1
+    local BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
+    local BINARY_NAME="${CLI_APP}_${VERSION#v}_linux_${ARCH}.tar.gz"
+    local DOWNLOAD_URL="${BASE_URL}/v${VERSION}/${BINARY_NAME}"
+    
+    echo "Downloading NetBird ${VERSION} for ${ARCH} from ${DOWNLOAD_URL}"
+    cd $INSTALL_DIR/download && curl -LO "$DOWNLOAD_URL"
+    
+    if [ ! -f "$BINARY_NAME" ]; then
+        echo "Failed to download the release binary: $BINARY_NAME"
+        return 1
+    fi
+    
+    echo "Verifying if the file is a valid tar.gz archive"
+    if ! tar -tzf "$BINARY_NAME" >/dev/null 2>&1; then
+        echo "Error: The downloaded file is not a valid tar.gz archive"
+        rm -f "$BINARY_NAME"
+        return 1
+    fi
+    
+    echo "Extracting $BINARY_NAME"
+    tar -xzvf "$BINARY_NAME" --overwrite
+    if [ -f "$CLI_APP" ]; then
+        echo "Stopping NetBird service"
+        cd ..
+        ./netbird down
+        ./netbird service stop
+        ./netbird service uninstall
+
+        cd download
+        echo "Installing $CLI_APP to $INSTALL_DIR"
+        sudo mv -f "$CLI_APP" "$INSTALL_DIR/"
+        sudo chmod +x "$INSTALL_DIR/$CLI_APP"
+
+        cd ..
+        echo "Reinstalling and starting NetBird service"
+        ./netbird service install
+        ./netbird service start
+        ./netbird up
+    else
+        echo "Error: Extracted binary not found"
+        return 1
+    fi
+    
+    rm -f "$BINARY_NAME"
+    echo "NetBird ${VERSION} installed successfully"
+}
+
+# Function to check for updates
+check_for_update() {
+    echo "Checking for the latest release..."
+    local LATEST_VERSION=$(get_latest_release)
+    if [ -z "$LATEST_VERSION" ]; then
+        echo "Unable to fetch the latest release version."
+        return 1
+    fi
+    
+    LATEST_VERSION=${LATEST_VERSION#v} # Remove the 'v' prefix if it exists
+    echo "Latest version is $LATEST_VERSION"
+    
+    local NETBIRD_PATH="$INSTALL_DIR/netbird"
+    if [ -x "$NETBIRD_PATH" ]; then
+        local INSTALLED_VERSION=$($NETBIRD_PATH version | awk '{for(i=1;i<=NF;i++) if($i ~ /[0-9]+\.[0-9]+\.[0-9]+/) print $i; exit}')
+        echo "Installed version is $INSTALLED_VERSION"
+        if [ "$INSTALLED_VERSION" == "$LATEST_VERSION" ]; then
+            echo "NetBird is up-to-date"
+            return 0
+        fi
+    fi
+    
+    echo "New version available: $LATEST_VERSION"
+    install_netbird "$LATEST_VERSION"
+}
+
+
+check_for_update
