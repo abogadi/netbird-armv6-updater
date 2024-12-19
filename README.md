@@ -1,0 +1,1 @@
+# netbird-armv6-updater
