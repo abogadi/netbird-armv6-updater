@@ -75,8 +75,9 @@ check_for_update() {
     LATEST_VERSION=${LATEST_VERSION#v} # Remove the 'v' prefix if it exists
     echo "Latest version is $LATEST_VERSION"
     
-    if [ -x "$(command -v netbird)" ]; then
-        local INSTALLED_VERSION=$(netbird version | awk '{for(i=1;i<=NF;i++) if($i ~ /[0-9]+\.[0-9]+\.[0-9]+/) print $i; exit}')
+    local NETBIRD_PATH="$INSTALL_DIR/netbird"
+    if [ -x "$NETBIRD_PATH" ]; then
+        local INSTALLED_VERSION=$($NETBIRD_PATH version | awk '{for(i=1;i<=NF;i++) if($i ~ /[0-9]+\.[0-9]+\.[0-9]+/) print $i; exit}')
         echo "Installed version is $INSTALLED_VERSION"
         if [ "$INSTALLED_VERSION" == "$LATEST_VERSION" ]; then
             echo "NetBird is up-to-date"
